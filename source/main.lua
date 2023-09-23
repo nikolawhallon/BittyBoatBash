@@ -10,6 +10,9 @@ import "AnimatedSprite.lua"
 local gfx <const> = playdate.graphics
 gfx.setBackgroundColor(gfx.kColorBlack)
 local baseScrollSpeed <const> = 6
+local defaultBoatSpeed <const> = 4
+local boatMinY <const> = 95
+local boatMaxY <const> = 225
 
 -- these are essentially "resources"
 local mineImagetable = gfx.imagetable.new("images/mine/mine")
@@ -18,11 +21,15 @@ local skylineImage = gfx.image.new("images/skyline.png")
 assert(skylineImage)
 local boatImagetable = gfx.imagetable.new("images/boat/boat")
 assert(boatImagetable)
+local collectibleImage = gfx.image.new("images/collectible.png")
+assert(collectibleImage)
 
 -- global-ish variables
 local boatSprite = nil
 local mineSprites = {}
 local mineTimer = nil
+local collectibleSprites = {}
+local collectibleTimer = nil
 local skylineSpriteA = nil
 local skylineSpriteB = nil
 local scrollSpeed = baseScrollSpeed
@@ -32,8 +39,9 @@ local function mineTimerCallback()
 	mineSprite = AnimatedSprite.new(mineImagetable)
 	mineSprite:addState("float", 1, 4, { tickStep = 3 })
 	mineSprite:playAnimation()
-	mineSprite:moveTo( 440, math.random(105, 240) )
+	mineSprite:moveTo(math.random(420, 460), math.random(105, 240))
 	mineSprite:setCollideRect(6, 2, 32 - 6 * 2, 18)
+	mineSprite:setTag(1)
 	mineSprite:add()
 
 	if mineSprites[1] == nil then
@@ -43,10 +51,26 @@ local function mineTimerCallback()
 	end
 end
 
+local function collectibleTimerCallback()
+	collectibleSprite = gfx.sprite.new(collectibleImage)
+	collectibleSprite:moveTo(math.random(420, 460), math.random(105, 240))
+	collectibleSprite:setCollideRect(0, 0, collectibleSprite:getSize())
+	collectibleSprite:add()
+
+	if collectibleSprites[1] == nil then
+		collectibleSprites[1] = collectibleSprite
+	else
+		table.insert(collectibleSprites, collectibleSprite)
+	end
+end
+
 function cleanUpGameObjects()
 	gfx.sprite.removeAll()
 	if mineTimer ~= nil then
 		mineTimer:remove()
+	end
+	if collectibleTimer ~= nil then
+		collectibleTimer:remove()
 	end
 end
 
@@ -54,6 +78,7 @@ function resetVariables()
 	boatSprite = nil
 	mineSprites = {}
 	mineTimer = nil
+	collectibleTimer = nil
 	skylineSpriteA = nil
 	skylineSpriteB = nil
 	scrollSpeed = baseScrollSpeed
@@ -66,7 +91,8 @@ function reInitGame()
 	initGame()
 end
 
-function initGame()	
+function initGame()
+	print("initGame")
 	math.randomseed(playdate.getSecondsSinceEpoch())
 	
 	skylineSpriteA = gfx.sprite.new(skylineImage)
@@ -79,8 +105,6 @@ function initGame()
 	
 	boatSprite = AnimatedSprite.new(boatImagetable)
 	boatSprite:addState("move", 1, 4, { tickStep = 3 })
-	boatSprite:addState("moveSlow", 1, 4, { tickStep = 4 })
-	boatSprite:addState("moveFast", 1, 4, { tickStep = 2 })
 	boatSprite:playAnimation()
 	boatSprite:moveTo(80, 160)
 	boatSprite:setCollideRect(50, 0, 65, 26)
@@ -88,6 +112,9 @@ function initGame()
 
 	mineTimer = playdate.timer.new(1000, mineTimerCallback)
 	mineTimer.repeats = true
+
+	collectibleTimer = playdate.timer.new(1000, collectibleTimerCallback)
+	collectibleTimer.repeats = true
 end
 
 initGame()
@@ -101,19 +128,13 @@ function playdate.update()
 	end
 	
 	if playdate.isCrankDocked() then
-		if playdate.buttonIsPressed( playdate.kButtonUp ) and boatSprite.y > 95 then
-			boatSprite:moveBy(0, -4)
+		if playdate.buttonIsPressed( playdate.kButtonUp ) and boatSprite.y > boatMinY then
+			boatSprite:moveBy(0, -defaultBoatSpeed)
 		end
-		if playdate.buttonIsPressed( playdate.kButtonDown ) and boatSprite.y < 225 then
-			boatSprite:moveBy(0, 4)
+		if playdate.buttonIsPressed( playdate.kButtonDown ) and boatSprite.y < boatMaxY then
+			boatSprite:moveBy(0, defaultBoatSpeed)
 		end
 	else
-		-- use crankAcceleratedChange to deal with plane speeds via something like
-		-- the commented out scroll speed logic
-		local crankChange, crankAcceleratedChange = playdate.getCrankChange()
-		--print(crankAcceleratedChange)
-		--scrollSpeed = math.max(baseScrollSpeed + crankAcceleratedChange, 1)
-		
 		local crankPosition = playdate.getCrankPosition()
 		
 		boatPositionFraction = nil
@@ -124,23 +145,8 @@ function playdate.update()
 			boatPositionFraction = 1 - (crankPosition - 180) / 180
 		end
 		
-		-- y position range is 95 - 225 (so a range of 130 values)
-		boatSprite:moveTo(80, 95 + 130 * boatPositionFraction)
+		boatSprite:moveTo(80, boatMinY + (boatMaxY - boatMinY) * boatPositionFraction)
 	end	
-	
-	-- consider whether to include this or not at all - it's useful to show how to switch animations at least
-	--[[
-	if playdate.buttonIsPressed( playdate.kButtonRight ) or playdate.buttonIsPressed( playdate.kButtonA ) then
-		scrollSpeed = baseScrollSpeed + 2
-		boatSprite:changeState("moveFast", true)
-	elseif playdate.buttonIsPressed( playdate.kButtonLeft ) or playdate.buttonIsPressed( playdate.kButtonB ) then
-		scrollSpeed = baseScrollSpeed - 2
-		boatSprite:changeState("moveSlow", true)
-	else
-		scrollSpeed = baseScrollSpeed
-		boatSprite:changeState("move", true)
-	end
-	--]]
 	
 	skylineSpriteA:moveBy(-scrollSpeed, 0)
 	skylineSpriteB:moveBy(-scrollSpeed, 0)
@@ -157,7 +163,7 @@ function playdate.update()
 		mineSprite:moveBy(-scrollSpeed, 0)
 		
 		if mineSprite.x < -40 then
-			mineSprites[index] = nil -- do this a better way
+			mineSprites[index] = nil -- TODO: do this a better way
 			mineSprite:remove()
 		end
 
@@ -168,6 +174,29 @@ function playdate.update()
 				boatSprite:remove()
 				mineSprite:remove()
 				gameOver = true
+			end
+		end
+	end
+
+	for index, collectibleSprite in pairs(collectibleSprites) do
+		collectibleSprite:moveBy(-scrollSpeed, 0)
+		
+		if collectibleSprite.x < -40 then
+			collectibleSprite[index] = nil -- TODO: do this a better way
+			collectibleSprite:remove()
+		end
+	
+		sprites_collided_with_collectible = collectibleSprite:overlappingSprites()
+		
+		for i = 1, #sprites_collided_with_collectible do
+			if sprites_collided_with_collectible[i] == boatSprite then
+				collectibleSprite:remove()
+			end
+			
+			-- prevent collectibles from overlapping with mines
+			if sprites_collided_with_collectible[i]:getTag() == 1 then
+				collectibleSprite:remove()
+				collectibleTimerCallback() -- TODO: do outside the loop?
 			end
 		end
 	end
